@@ -13,7 +13,7 @@ def get_ride_status(ride_id):
     return response.json()
 
 if __name__ == "__main__":
-    booking_response = book_ride(1, "Bull Temple Road", "MG Road")
+    booking_response = book_ride(3, "Bull Temple Road", "MG Road")
     print("Booking Response:", booking_response)
 
     ride_id = booking_response.get("ride_id")
