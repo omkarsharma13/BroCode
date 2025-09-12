@@ -10,7 +10,7 @@ def get_connection():
         host="localhost",
         database="mini_uber",   # change to your DB name
         user="postgres",        # change if you use a different user
-        password="your_password",  # change to your password
+        password="yourpassword",  # change to your password
         port=5432
     )
 
