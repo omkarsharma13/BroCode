@@ -1,31 +1,81 @@
-from fastapi import FastAPI, Depends
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
-from db import SessionLocal, init_db, Ride
+from fastapi import FastAPI
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 app = FastAPI()
 
-# Request body model
-class RideRequest(BaseModel):
-    user_id: int
-    pickup: str
-    destination: str
+# --- Database connection ---
+def get_connection():
+    return psycopg2.connect(
+        host="localhost",
+        database="mini_uber",   # change to your DB name
+        user="postgres",        # change if you use a different user
+        password="your_password",  # change to your password
+        port=5432
+    )
 
-@app.on_event("startup")
-def startup_event():
-    init_db()
+# --- API Endpoints ---
 
-def get_db():
-    db = SessionLocal()
+@app.post("/register_driver")
+def register_driver(name: str, phone: str):
     try:
-        yield db
-    finally:
-        db.close()
+        conn = get_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute(
+            """
+            INSERT INTO drivers (name, phone, status)
+            VALUES (%s, %s, 'available')
+            RETURNING id, name, phone, status
+            """,
+            (name, phone),
+        )
+        driver = cur.fetchone()
+        conn.commit()
+
+        cur.close()
+        conn.close()
+        return {"message": "Driver registered successfully", "driver": driver}
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.post("/book_ride")
-def book_ride(request: RideRequest, db: Session = Depends(get_db)):
-    ride = Ride(user_id=request.user_id, pickup=request.pickup, destination=request.destination)
-    db.add(ride)
-    db.commit()
-    db.refresh(ride)
-    return {"ride_id": ride.ride_id, "status": ride.status}
+def book_ride(user_id: int, pickup: str, drop: str):
+    try:
+        conn = get_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute(
+            """
+            INSERT INTO rides (user_id, pickup, drop, status)
+            VALUES (%s, %s, %s, 'pending')
+            RETURNING id, user_id, pickup, drop, status
+            """,
+            (user_id, pickup, drop),
+        )
+        ride = cur.fetchone()
+        conn.commit()
+
+        cur.close()
+        conn.close()
+        return {"message": "Ride booked successfully", "ride": ride}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/ride_status/{ride_id}")
+def ride_status(ride_id: int):
+    try:
+        conn = get_connection()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute("SELECT * FROM rides WHERE id = %s", (ride_id,))
+        ride = cur.fetchone()
+
+        cur.close()
+        conn.close()
+
+        if ride:
+            return {"ride": ride}
+        return {"error": "Ride not found"}
+    except Exception as e:
+        return {"error": str(e)}

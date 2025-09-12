@@ -2,22 +2,42 @@ import requests
 
 BASE_URL = "http://127.0.0.1:8000"
 
-
-def book_ride(user_id, pickup, destination):
-    data = {"user_id": user_id, "pickup": pickup, "destination": destination}
-    response = requests.post(f"{BASE_URL}/book_ride", json=data)
+def register_driver(name, phone):
+    response = requests.post(
+        f"{BASE_URL}/register_driver",
+        params={"name": name, "phone": phone}
+    )
     return response.json()
 
-def get_ride_status(ride_id):
-    response = requests.get(f"{BASE_URL}/ride_status/{ride_id}")
+def accept_ride(ride_id, driver_id):
+    response = requests.post(
+        f"{BASE_URL}/accept_ride/{ride_id}",
+        params={"driver_id": driver_id}
+    )
     return response.json()
 
+def complete_ride(ride_id, driver_id):
+    response = requests.post(
+        f"{BASE_URL}/complete_ride/{ride_id}",
+        params={"driver_id": driver_id}
+    )
+    return response.json()
+
+def driver_rides(driver_id):
+    response = requests.get(f"{BASE_URL}/driver_rides/{driver_id}")
+    return response.json()
+
+
+# Example usage
 if __name__ == "__main__":
-    booking_response = book_ride(3, "Bull Temple Road", "MG Road")
-    print("Booking Response:", booking_response)
+    # Register a driver
+    driver = register_driver("Ravi", "8887776666")
+    print("Driver Registered:", driver)
 
-    ride_id = booking_response.get("ride_id")
+    # Example: Accept a ride (replace ride_id=1 with actual ride_id from bookings)
+    # accepted = accept_ride(1, driver["driver_id"])
+    # print("Accepted Ride:", accepted)
 
-    if ride_id:
-        status_response = get_ride_status(ride_id)
-        print("Ride Status:", status_response)
+    # Example: View driver rides
+    rides = driver_rides(driver["driver_id"])
+    print("Driver Rides:", rides)
