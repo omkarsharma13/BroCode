@@ -9,35 +9,45 @@ def register_driver(name, phone):
     )
     return response.json()
 
-def accept_ride(ride_id, driver_id):
+def book_ride(user_id, pickup, drop):
     response = requests.post(
-        f"{BASE_URL}/accept_ride/{ride_id}",
-        params={"driver_id": driver_id}
+        f"{BASE_URL}/book_ride",
+        params={"user_id": user_id, "pickup": pickup, "drop": drop}
     )
     return response.json()
 
-def complete_ride(ride_id, driver_id):
-    response = requests.post(
-        f"{BASE_URL}/complete_ride/{ride_id}",
-        params={"driver_id": driver_id}
-    )
+def ride_status(ride_id):
+    response = requests.get(f"{BASE_URL}/ride_status/{ride_id}")
     return response.json()
 
 def driver_rides(driver_id):
     response = requests.get(f"{BASE_URL}/driver_rides/{driver_id}")
     return response.json()
 
-
-# Example usage
+# -------------------
+# MAIN EXECUTION FLOW
+# -------------------
 if __name__ == "__main__":
-    # Register a driver
-    driver = register_driver("Ravi", "8887776666")
-    print("Driver Registered:", driver)
+    driver_response = register_driver("Ravi", "8887776666")
+    print("Driver Registered:", driver_response)
 
-    # Example: Accept a ride (replace ride_id=1 with actual ride_id from bookings)
-    # accepted = accept_ride(1, driver["driver_id"])
-    # print("Accepted Ride:", accepted)
+    if "driver" in driver_response:
+        driver_id = driver_response["driver"]["id"]
 
-    # Example: View driver rides
-    rides = driver_rides(driver["driver_id"])
-    print("Driver Rides:", rides)
+        # Step 2: Book a ride for user_id = 1
+        ride_response = book_ride(1, "Delhi", "Gurgaon")
+        print("Ride Booked:", ride_response)
+
+        if "ride" in ride_response:
+            ride_id = ride_response["ride"]["id"]
+
+            # Step 3: Check ride status
+            status = ride_status(ride_id)
+            print("Ride Status:", status)
+
+            # Step 4: Get rides assigned to driver
+            rides = driver_rides(driver_id)
+            print("Driver Rides:", rides)
+
+    else:
+        print("❌ Could not register driver. Error:", driver_response)
