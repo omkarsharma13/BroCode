@@ -1,4 +1,4 @@
-from server import request_ride
+from server import register_user, register_driver, request_ride, assign_driver
 
 def main():
     print("🚖 Welcome to Mini Uber - User Client")

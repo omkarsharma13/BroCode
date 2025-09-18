@@ -1,88 +1,117 @@
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
-DB_CONFIG = {
-    "database": "mini_uber",
-    "user": "postgres",             # use the DB owner you see in pgAdmin
-    "password": "omkar13",  # the same password you set in pgAdmin
-    "host": "localhost",
-    "port": "5433"
-}
-
-
-def connect_db():
-    # Pass only valid connection parameters to psycopg2.connect
-    conn = psycopg2.connect(
-        database=DB_CONFIG["database"],
-        user=DB_CONFIG["user"],
-        password=DB_CONFIG["password"],
-        host=DB_CONFIG["host"],
-        port=DB_CONFIG["port"]
+# Database connection
+def get_connection():
+    return psycopg2.connect(
+        dbname="mini_uber",
+        user="postgres",         # change if needed
+        password="omkar13",  # 🔑 update with your password
+        host="localhost",
+        port="5433"
     )
-    return conn
 
-def register_driver(name, email):
-    conn = connect_db()
+# --------------------
+# User functions
+# --------------------
+def register_user(name, email, phone):
+    conn = get_connection()
     cur = conn.cursor()
-    try:
-        cur.execute("""
-            INSERT INTO drivers (name, email) VALUES (%s, %s)
-            ON CONFLICT (email) DO NOTHING
-            RETURNING id;
-        """, (name, email))
-        driver_id = cur.fetchone()
-        conn.commit()
-        return {"driver_id": driver_id[0] if driver_id else None, "status": "registered"}
-    except Exception as e:
-        return {"error": str(e)}
-    finally:
+    cur.execute(
+        "INSERT INTO users (name, email, phone) VALUES (%s, %s, %s) RETURNING user_id;",
+        (name, email, phone)
+    )
+    result = cur.fetchone()
+    if result is None:
+        conn.rollback()
         cur.close()
         conn.close()
+        return {"error": "User registration failed"}
+    user_id = result[0]
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"user_id": user_id, "status": "registered"}
 
+# --------------------
+# Driver functions
+# --------------------
+def register_driver(name, email, phone, vehicle_number):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO drivers (name, email, phone, vehicle_number) VALUES (%s, %s, %s, %s) RETURNING driver_id;",
+        (name, email, phone, vehicle_number)
+    )
+    result = cur.fetchone()
+    if result is None:
+        conn.rollback()
+        cur.close()
+        conn.close()
+        return {"error": "Driver registration failed"}
+    driver_id = result[0]
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"driver_id": driver_id, "status": "registered"}
+
+# --------------------
+# Ride functions
+# --------------------
 def request_ride(user_id, pickup, destination):
-    conn = connect_db()
+    conn = get_connection()
     cur = conn.cursor()
-    try:
-        # Insert ride
-        cur.execute("""
-            INSERT INTO rides (user_id, pickup, destination, status)
-            VALUES (%s, %s, %s, 'waiting') RETURNING ride_id;
-        """, (user_id, pickup, destination))
-        ride_row = cur.fetchone()
-        if ride_row is None:
-            return {"error": "Failed to create ride."}
-        ride_id = ride_row[0]
-
-        # Assign first available driver
-        cur.execute("""
-            SELECT id FROM drivers
-            WHERE id NOT IN (SELECT driver_id FROM rides WHERE status IN ('assigned','ongoing'))
-            LIMIT 1;
-        """)
-        driver = cur.fetchone()
-
-        if driver:
-            cur.execute("UPDATE rides SET driver_id=%s, status='assigned' WHERE ride_id=%s;",
-                        (driver[0], ride_id))
-            conn.commit()
-            return {"ride_id": ride_id, "driver_id": driver[0], "status": "assigned"}
-        else:
-            conn.commit()
-            return {"ride_id": ride_id, "status": "waiting"}
-    except Exception as e:
-        return {"error": str(e)}
-    finally:
+    cur.execute(
+        "INSERT INTO rides (user_id, pickup, destination) VALUES (%s, %s, %s) RETURNING ride_id;",
+        (user_id, pickup, destination)
+    )
+    result = cur.fetchone()
+    if result is None:
+        conn.rollback()
         cur.close()
         conn.close()
+        return {"error": "Ride request failed"}
+    ride_id = result[0]
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"ride_id": ride_id, "status": "requested"}
 
+def assign_driver(ride_id):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # pick first available driver
+    cur.execute("SELECT driver_id FROM drivers WHERE status = 'available' LIMIT 1;")
+    driver = cur.fetchone()
+
+    if not driver:
+        cur.close()
+        conn.close()
+        return {"error": "No drivers available"}
+
+    driver_id = driver[0]
+
+    # update ride
+    cur.execute("UPDATE rides SET driver_id = %s, status = 'ongoing' WHERE ride_id = %s;",
+                (driver_id, ride_id))
+    # update driver status
+    cur.execute("UPDATE drivers SET status = 'busy' WHERE driver_id = %s;", (driver_id,))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"ride_id": ride_id, "driver_id": driver_id, "status": "ongoing"}
 def driver_rides(driver_id):
-    conn = connect_db()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
-    try:
-        cur.execute("SELECT * FROM rides WHERE driver_id=%s;", (driver_id,))
-        return cur.fetchall()
-    except Exception as e:
-        return {"error": str(e)}
-    finally:
-        cur.close()
-        conn.close()
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT ride_id, user_id, pickup, destination, status, requested_at, completed_at
+        FROM rides
+        WHERE driver_id = %s;
+    """, (driver_id,))
+    rides = cur.fetchall()
+    conn.commit()
+    cur.close()
+    conn.close()
+    return rides
