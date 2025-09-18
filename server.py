@@ -1,81 +1,88 @@
-from fastapi import FastAPI
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
-app = FastAPI()
+DB_CONFIG = {
+    "database": "mini_uber",
+    "user": "postgres",             # use the DB owner you see in pgAdmin
+    "password": "omkar13",  # the same password you set in pgAdmin
+    "host": "localhost",
+    "port": "5433"
+}
 
-# --- Database connection ---
-def get_connection():
-    return psycopg2.connect(
-        host="localhost",
-        database="mini_uber",   # change to your DB name
-        user="postgres",        # change if you use a different user
-        password="yourpassword",  # change to your password
-        port=5432
+
+def connect_db():
+    # Pass only valid connection parameters to psycopg2.connect
+    conn = psycopg2.connect(
+        database=DB_CONFIG["database"],
+        user=DB_CONFIG["user"],
+        password=DB_CONFIG["password"],
+        host=DB_CONFIG["host"],
+        port=DB_CONFIG["port"]
     )
+    return conn
 
-# --- API Endpoints ---
-
-@app.post("/register_driver")
-def register_driver(name: str, phone: str):
+def register_driver(name, email):
+    conn = connect_db()
+    cur = conn.cursor()
     try:
-        conn = get_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("""
+            INSERT INTO drivers (name, email) VALUES (%s, %s)
+            ON CONFLICT (email) DO NOTHING
+            RETURNING id;
+        """, (name, email))
+        driver_id = cur.fetchone()
+        conn.commit()
+        return {"driver_id": driver_id[0] if driver_id else None, "status": "registered"}
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        cur.close()
+        conn.close()
 
-        cur.execute(
-            """
-            INSERT INTO drivers (name, phone, status)
-            VALUES (%s, %s, 'available')
-            RETURNING id, name, phone, status
-            """,
-            (name, phone),
-        )
+def request_ride(user_id, pickup, destination):
+    conn = connect_db()
+    cur = conn.cursor()
+    try:
+        # Insert ride
+        cur.execute("""
+            INSERT INTO rides (user_id, pickup, destination, status)
+            VALUES (%s, %s, %s, 'waiting') RETURNING ride_id;
+        """, (user_id, pickup, destination))
+        ride_row = cur.fetchone()
+        if ride_row is None:
+            return {"error": "Failed to create ride."}
+        ride_id = ride_row[0]
+
+        # Assign first available driver
+        cur.execute("""
+            SELECT id FROM drivers
+            WHERE id NOT IN (SELECT driver_id FROM rides WHERE status IN ('assigned','ongoing'))
+            LIMIT 1;
+        """)
         driver = cur.fetchone()
-        conn.commit()
 
-        cur.close()
-        conn.close()
-        return {"message": "Driver registered successfully", "driver": driver}
+        if driver:
+            cur.execute("UPDATE rides SET driver_id=%s, status='assigned' WHERE ride_id=%s;",
+                        (driver[0], ride_id))
+            conn.commit()
+            return {"ride_id": ride_id, "driver_id": driver[0], "status": "assigned"}
+        else:
+            conn.commit()
+            return {"ride_id": ride_id, "status": "waiting"}
     except Exception as e:
         return {"error": str(e)}
+    finally:
+        cur.close()
+        conn.close()
 
-@app.post("/book_ride")
-def book_ride(user_id: int, pickup: str, drop: str):
+def driver_rides(driver_id):
+    conn = connect_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
     try:
-        conn = get_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-
-        cur.execute(
-            """
-            INSERT INTO rides (user_id, pickup, drop, status)
-            VALUES (%s, %s, %s, 'pending')
-            RETURNING id, user_id, pickup, drop, status
-            """,
-            (user_id, pickup, drop),
-        )
-        ride = cur.fetchone()
-        conn.commit()
-
-        cur.close()
-        conn.close()
-        return {"message": "Ride booked successfully", "ride": ride}
+        cur.execute("SELECT * FROM rides WHERE driver_id=%s;", (driver_id,))
+        return cur.fetchall()
     except Exception as e:
         return {"error": str(e)}
-
-@app.get("/ride_status/{ride_id}")
-def ride_status(ride_id: int):
-    try:
-        conn = get_connection()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-
-        cur.execute("SELECT * FROM rides WHERE id = %s", (ride_id,))
-        ride = cur.fetchone()
-
+    finally:
         cur.close()
         conn.close()
-
-        if ride:
-            return {"ride": ride}
-        return {"error": "Ride not found"}
-    except Exception as e:
-        return {"error": str(e)}
