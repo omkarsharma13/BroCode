@@ -3,8 +3,8 @@ import psycopg2
 def get_connection():
     return psycopg2.connect(
         dbname="mini_uber",
-        user="postgres",
-        password="your_password",   # 🔑 replace with your actual password
+        user="omkar",              # ✅ use the existing role
+        password="yourpassword",   # 🔑 replace with omkar's password
         host="localhost",
         port="5433"
     )

@@ -3,11 +3,12 @@ import psycopg2
 def get_connection():
     return psycopg2.connect(
         dbname="mini_uber",
-        user="postgres",
-        password="your_password",  # 🔑 replace with your password
+        user="omkar",             # ✅ change from "postgres" to "omkar"
+        password="yourpassword",  # 🔑 replace with omkar's password
         host="localhost",
         port="5433"
     )
+
 
 def register_driver(conn, name, email, phone, vehicle_number):
     cur = conn.cursor()
