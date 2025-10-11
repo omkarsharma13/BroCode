@@ -115,3 +115,83 @@ def driver_rides(driver_id):
     cur.close()
     conn.close()
     return rides
+# --------------------
+# Ride update functions
+# --------------------
+
+def accept_ride(ride_id, driver_id):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # Update ride as accepted
+    cur.execute("""
+        UPDATE rides
+        SET driver_id = %s, status = 'accepted'
+        WHERE ride_id = %s;
+    """, (driver_id, ride_id))
+
+    # Update driver status
+    cur.execute("UPDATE drivers SET status = 'busy' WHERE driver_id = %s;", (driver_id,))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"ride_id": ride_id, "driver_id": driver_id, "status": "accepted"}
+
+
+def decline_ride(ride_id, driver_id):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # Mark ride declined
+    cur.execute("""
+        UPDATE rides
+        SET driver_id = %s, status = 'declined'
+        WHERE ride_id = %s;
+    """, (driver_id, ride_id))
+
+    # Keep driver available
+    cur.execute("UPDATE drivers SET status = 'available' WHERE driver_id = %s;", (driver_id,))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"ride_id": ride_id, "driver_id": driver_id, "status": "declined"}
+
+
+def complete_ride(ride_id, driver_id):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # Mark ride completed
+    cur.execute("""
+        UPDATE rides
+        SET status = 'completed', completed_at = NOW()
+        WHERE ride_id = %s;
+    """, (ride_id,))
+
+    # Make driver available again
+    cur.execute("UPDATE drivers SET status = 'available' WHERE driver_id = %s;", (driver_id,))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"ride_id": ride_id, "driver_id": driver_id, "status": "completed"}
+import requests
+
+def notify_user(user_id, ride_id, driver_info):
+    # fetch user's endpoint from DB or built conventionally
+    user_notification_url = f'http://localhost:600{user_id}/notify_match'
+    requests.post(user_notification_url, json={
+        'ride_id': ride_id,
+        'driver': driver_info,
+        'status': 'matched'
+    })
+
+def notify_driver(driver_id, ride_id, user_info):
+    driver_notification_url = f'http://localhost:900{driver_id}/notify_match'
+    requests.post(driver_notification_url, json={
+        'ride_id': ride_id,
+        'user': user_info,
+        'status': 'matched'
+    })
