@@ -4,6 +4,8 @@
 
 import time
 import requests
+from db import get_connection
+
 
 ORCHESTRATOR = "http://127.0.0.1:8080"
 

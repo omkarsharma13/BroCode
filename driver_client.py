@@ -1,132 +1,121 @@
-import psycopg2
-from psycopg2.extras import RealDictCursor
+# driver_client.py
+import argparse
+import requests
 
-# --------------------
-# Database connection
-# --------------------
-def get_connection():
-    return psycopg2.connect(
-        dbname="mini_uber",
-        user="postgres",
-        password="omkar13",  # update if needed
-        host="localhost",
-        port="5432"
-    )
+def ping(server):
+    try:
+        r = requests.get(f"{server}/ping", timeout=2)
+        return r.status_code == 200
+    except Exception:
+        return False
 
-# --------------------
-# Register Driver
-# --------------------
-def register_driver(conn, name, email, phone, vehicle_number):
-    with conn.cursor() as cur:
-        cur.execute("SELECT driver_id FROM drivers WHERE email = %s;", (email,))
-        existing = cur.fetchone()
-        if existing:
-            print(f"✅ Driver already registered with id {existing[0]}")
-            return existing[0]
+def register_driver(server):
+    print("🚗 Register Driver / Mover")
+    name = input("Name: ")
+    email = input("Email: ")
+    phone = input("Phone: ")
+    vehicle_number = input("Vehicle number: ")
+    is_mover = input("Is this driver a Movers partner? (y/n) [n]: ").lower() == "y"
+    vehicle_type = None
+    if is_mover:
+        vehicle_type = input("Vehicle type (van/truck/tempo) [van]: ") or "van"
 
-        cur.execute(
-            """
-            INSERT INTO drivers (name, email, phone, vehicle_number)
-            VALUES (%s, %s, %s, %s) RETURNING driver_id;
-            """,
-            (name, email, phone, vehicle_number)
+    r = requests.post(f"{server}/register_driver", json={
+        "name": name,
+        "email": email,
+        "phone": phone,
+        "vehicle_number": vehicle_number,
+        "is_mover": is_mover,
+        "vehicle_type": vehicle_type,
+    })
+    r.raise_for_status()
+    did = r.json()["driver_id"]
+    print(f"✅ Registered driver_id = {did}")
+    if is_mover:
+        print("🎒 This driver can now receive Movers jobs!")
+    return did
+
+def view_pending_moves(server):
+    r = requests.get(f"{server}/pending_moves")
+    r.raise_for_status()
+    moves = r.json()
+    if not moves:
+        print("😴 No pending moves right now.")
+        return
+    print("\n📋 Pending Moves:")
+    for m in moves:
+        print(
+            f"  #{m['move_id']} | User {m['user_id']} | "
+            f"{m['pickup']} → {m['drop']} | Est ₹{m.get('estimated_cost')}"
         )
-        driver_id = cur.fetchone()[0]
-        conn.commit()
-        print(f"✅ New driver registered with id {driver_id}")
-        return driver_id
 
-# --------------------
-# View requested rides
-# --------------------
-def view_requested_rides(conn):
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        cur.execute("""
-            SELECT rr.request_id, u.name AS user_name, rr.pickup_location, rr.dropoff_location, rr.status
-            FROM ride_requests rr
-            JOIN users u ON rr.user_id = u.user_id
-            WHERE rr.status = 'pending'
-            ORDER BY rr.request_time;
-        """)
-        rides = cur.fetchall()
-        if not rides:
-            print("No requested rides at the moment.")
-            return []
-        print("\n🚕 Pending Ride Requests:")
-        for r in rides:
-            print(f"[{r['request_id']}] {r['user_name']} - {r['pickup_location']} ➡ {r['dropoff_location']} (Status: {r['status']})")
-        return rides
+def accept_move(server, driver_id):
+    mid = input("Enter move_id to accept: ").strip()
+    if not mid:
+        return
+    r = requests.post(f"{server}/assign_move", json={
+        "move_id": int(mid),
+        "driver_id": driver_id,
+    })
+    print("📦 Accept response:", r.status_code, r.text)
 
-# --------------------
-# Accept a ride
-# --------------------
-def accept_ride(conn, driver_id, request_id):
-    with conn.cursor() as cur:
-        # Update request status
-        cur.execute("UPDATE ride_requests SET status = 'accepted' WHERE request_id = %s;", (request_id,))
-        # Create a new ride entry
-        cur.execute(
-            """
-            INSERT INTO rides (request_id, driver_id, user_id, pickup, destination, status)
-            SELECT request_id, %s, user_id, pickup_location, dropoff_location, 'ongoing'
-            FROM ride_requests WHERE request_id = %s
-            RETURNING ride_id;
-            """,
-            (driver_id, request_id)
-        )
-        ride_id = cur.fetchone()[0]
-        conn.commit()
-        print(f"✅ Ride accepted successfully! Ride ID: {ride_id}")
+def start_move(server):
+    mid = input("Enter move_id to mark as STARTED: ").strip()
+    if not mid:
+        return
+    r = requests.post(f"{server}/start_move", json={"move_id": int(mid)})
+    print("▶️  Start response:", r.status_code, r.text)
 
-# --------------------
-# Complete a ride
-# --------------------
-def complete_ride(conn, driver_id, ride_id):
-    with conn.cursor() as cur:
-        cur.execute(
-            "UPDATE rides SET status = 'completed', end_time = NOW() WHERE ride_id = %s AND driver_id = %s;",
-            (ride_id, driver_id)
-        )
-        conn.commit()
-        print(f"✅ Ride {ride_id} marked as completed!")
+def complete_move(server):
+    mid = input("Enter move_id to COMPLETE: ").strip()
+    if not mid:
+        return
+    r = requests.post(f"{server}/complete_move", json={"move_id": int(mid)})
+    print("✅ Complete response:", r.status_code, r.text)
 
-# --------------------
-# Main Menu
-# --------------------
+def view_move(server):
+    mid = input("Enter move_id to view: ").strip()
+    if not mid:
+        return
+    r = requests.get(f"{server}/move_status/{mid}")
+    print("ℹ️ Move info:", r.status_code, r.text)
+
 def main():
-    print("🚗 Welcome to Mini Uber - Driver Client")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--server", default="http://localhost:8000")
+    args = parser.parse_args()
+    server = args.server
 
-    name = input("Enter your name: ")
-    email = input("Enter your email: ")
-    phone = input("Enter your phone number: ")
-    vehicle_number = input("Enter your vehicle number: ")
+    if not ping(server):
+        print("❌ Cannot reach server at", server)
+        return
 
-    conn = get_connection()
-    driver_id = register_driver(conn, name, email, phone, vehicle_number)
+    driver_id = register_driver(server)
 
     while True:
-        print("\n--- Driver Menu ---")
-        print("1. View requested rides")
-        print("2. Accept a ride")
-        print("3. Complete a ride")
-        print("4. Exit")
-        choice = input("Enter choice: ")
+        print("\n=== Driver Menu ===")
+        print("1) View pending moves")
+        print("2) Accept move")
+        print("3) Start move")
+        print("4) Complete move")
+        print("5) View move details")
+        print("6) Exit")
+        c = input("Choice: ").strip()
 
-        if choice == "1":
-            view_requested_rides(conn)
-        elif choice == "2":
-            request_id = input("Enter Request ID to accept: ")
-            accept_ride(conn, driver_id, request_id)
-        elif choice == "3":
-            ride_id = input("Enter Ride ID to complete: ")
-            complete_ride(conn, driver_id, ride_id)
-        elif choice == "4":
-            print("👋 Exiting driver app.")
+        if c == "1":
+            view_pending_moves(server)
+        elif c == "2":
+            accept_move(server, driver_id)
+        elif c == "3":
+            start_move(server)
+        elif c == "4":
+            complete_move(server)
+        elif c == "5":
+            view_move(server)
+        elif c == "6":
             break
         else:
-            print("❌ Invalid choice. Try again.")
-
-    conn.close()
+            print("❌ Invalid choice")
 
 if __name__ == "__main__":
     main()
